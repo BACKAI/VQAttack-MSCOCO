@@ -1,0 +1,20 @@
+name: vqattack-textvqa
+channels:
+  - pytorch
+  - nvidia
+  - conda-forge
+  - defaults
+dependencies:
+  - python=3.10
+  - pip
+  - numpy<2
+  - pillow
+  - nltk
+  - scikit-learn
+  - pip:
+      - transformers==4.26.1
+      - ruamel.yaml
+      - timm==0.4.12
+      - opencv-python
+      - pycocotools
+      - pyarrow

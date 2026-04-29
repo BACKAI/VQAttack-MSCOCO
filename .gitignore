@@ -1,0 +1,43 @@
+# Python/cache
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# Environments
+.venv/
+venv/
+env/
+
+# Large checkpoints and model weights
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+checkpoints/
+ALBEF_VQAttack/pretrained/
+
+# Datasets and generated attack outputs
+data/
+datasets/
+outputs/
+logs/
+*.log
+ALBEF_VQAttack/ALBEF_attack/attack_dir/
+ALBEF_VQAttack/ALBEF_attack/run_output*/
+ALBEF_VQAttack/ALBEF_attack/configs/TextVQA_*.yaml
+ALBEF_VQAttack/ALBEF_attack/configs/NuScenesQAMini_*.yaml
+ALBEF_VQAttack/nuscenes_qa_mini_albef/
+ALBEF_VQAttack/nuscenes_qa_mini_albef_smoketest/
+ALBEF_VQAttack/NUSCENES_QA_MINI.md
+ALBEF_VQAttack/build_nuscenes_attack_assets.py
+ALBEF_VQAttack/convert_nuscenes_qa_mini_to_albef.py
+mini_attack/
+
+# Generated TextVQA work folders
+vqattack_albef_*/
+validation_attack_local/
+
+# OS/editor
+.DS_Store
+Thumbs.db
+.vscode/
