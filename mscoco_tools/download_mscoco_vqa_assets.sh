@@ -29,8 +29,11 @@ download_file() {
   local url="$1"
   local target="$2"
   if [[ -s "$target" ]]; then
-    echo "Already downloaded: ${target}"
-    return
+    if command -v unzip >/dev/null 2>&1 && unzip -tq "$target" >/dev/null 2>&1; then
+      echo "Already downloaded and zip-verified: ${target}"
+      return
+    fi
+    echo "Existing zip is incomplete or invalid, resuming download: ${target}"
   fi
 
   echo "Downloading ${url}"
