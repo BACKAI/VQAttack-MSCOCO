@@ -41,3 +41,21 @@ validation_attack_local/
 .DS_Store
 Thumbs.db
 .vscode/
+# large local/server artifacts
+*.pth
+*.pt
+*.ckpt
+*.safetensors
+*.zip
+*.tar
+*.tar.gz
+*.parquet
+__pycache__/
+checkpoints/
+pretrained/
+outputs/
+downloads/
+dataset/
+train2014/
+val2014/
+test2015/
