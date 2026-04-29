@@ -7,6 +7,7 @@ DOWNLOAD_DIR=""
 SKIP_IMAGES=0
 SKIP_QUESTIONS=0
 SKIP_ANNOTATIONS=0
+PYTHON_BIN="${PYTHON:-python}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -25,11 +26,31 @@ fi
 
 mkdir -p "$MSCOCO_ROOT" "$DOWNLOAD_DIR"
 
+zip_is_valid() {
+  local zip_path="$1"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -tq "$zip_path" >/dev/null 2>&1
+    return $?
+  fi
+  "$PYTHON_BIN" - "$zip_path" <<'PY'
+import sys
+import zipfile
+
+zip_path = sys.argv[1]
+try:
+    with zipfile.ZipFile(zip_path) as zf:
+        bad = zf.testzip()
+except zipfile.BadZipFile:
+    raise SystemExit(1)
+raise SystemExit(0 if bad is None else 1)
+PY
+}
+
 download_file() {
   local url="$1"
   local target="$2"
   if [[ -s "$target" ]]; then
-    if command -v unzip >/dev/null 2>&1 && unzip -tq "$target" >/dev/null 2>&1; then
+    if zip_is_valid "$target"; then
       echo "Already downloaded and zip-verified: ${target}"
       return
     fi
@@ -52,12 +73,34 @@ download_file() {
 extract_zip() {
   local zip_path="$1"
   local target_dir="$2"
-  if ! command -v unzip >/dev/null 2>&1; then
-    echo "Missing unzip. Install it outside this script, then rerun." >&2
-    exit 1
-  fi
   echo "Extracting ${zip_path} into ${target_dir}"
-  unzip -n "$zip_path" -d "$target_dir"
+  if command -v unzip >/dev/null 2>&1; then
+    unzip -n "$zip_path" -d "$target_dir"
+  else
+    "$PYTHON_BIN" - "$zip_path" "$target_dir" <<'PY'
+import sys
+import zipfile
+from pathlib import Path
+
+zip_path = Path(sys.argv[1])
+target_dir = Path(sys.argv[2])
+with zipfile.ZipFile(zip_path) as zf:
+    for member in zf.infolist():
+        target = target_dir / member.filename
+        if member.is_dir():
+            target.mkdir(parents=True, exist_ok=True)
+            continue
+        if target.exists():
+            continue
+        target.parent.mkdir(parents=True, exist_ok=True)
+        with zf.open(member) as src, target.open("wb") as dst:
+            while True:
+                chunk = src.read(1024 * 1024)
+                if not chunk:
+                    break
+                dst.write(chunk)
+PY
+  fi
 }
 
 if [[ "$SKIP_IMAGES" -eq 0 ]]; then
@@ -81,5 +124,5 @@ if [[ "$SKIP_ANNOTATIONS" -eq 0 ]]; then
   extract_zip "${DOWNLOAD_DIR}/v2_Annotations_Val_mscoco.zip" "$MSCOCO_ROOT"
 fi
 
-"${PYTHON:-python}" "${SCRIPT_DIR}/verify_mscoco_vqa_assets.py" \
+"$PYTHON_BIN" "${SCRIPT_DIR}/verify_mscoco_vqa_assets.py" \
   --mscoco-root "$MSCOCO_ROOT"
