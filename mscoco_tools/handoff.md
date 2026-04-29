@@ -1,102 +1,72 @@
-# MSCOCO VQAttack 핸드오프
+# MSCOCO VQAttack 인계 메모
 
-## 변경 내용
+## 변경 사항
 
-- MSCOCO VQA v2 train/validation용 VQAttack 실행 파이프라인을 `D:\VLM\dataset\MSCOCO\code` 내부에 작성했다.
-- GitHub에는 코드만 올릴 수 있도록 dataset/checkpoint를 생성하거나 포함하지 않는다.
-- 서버에서는 MSCOCO dataset만 직접 다운로드하고, ALBEF checkpoint는 기존 TextVQA 실행에서 쓰는 경로를 재사용한다.
-- 기본 GPU를 `4,5,6,7`로 설정했다.
-- train/val의 모든 question을 개별 공격 record로 변환하므로 image 하나에 question이 여러 개 있어도 전부 공격 대상이 된다.
+- MSCOCO validation image subset 공격 옵션을 추가했다.
+- 새 옵션:
+  - `--max-images-per-split val=3166`
+- 이 옵션은 question 3,166개를 자르는 것이 아니라, validation image 3,166장을 선택한 뒤 그 image에 연결된 모든 question을 공격 대상으로 유지한다.
 
-## 작성 파일
+## 수정된 파일
 
-- `download_mscoco_vqa_assets.sh`
-- `verify_mscoco_vqa_assets.py`
-- `mscoco_vqa_common.py`
 - `prepare_mscoco_vqattack_albef.py`
-- `write_mscoco_vqattack_config.py`
-- `merge_mscoco_vqattack_shards.py`
-- `write_attacked_mscoco_original_format.py`
-- `validate_mscoco_vqattack_output.py`
+  - split별 image limit parser 추가
+  - image subset 선택 후 해당 image의 모든 question 유지
+  - manifest에 `max_images_per_split` 기록
 - `run_mscoco_vqattack_4gpu.sh`
-- `plan.md`
-- `handoff.md`
+  - `--max-images-per-split` 인자 추가
+  - prepare 단계로 전달
+  - finalization/validation을 metadata subset 기준으로 수행
+- `write_attacked_mscoco_original_format.py`
+  - `--subset-to-metadata` 추가
+  - metadata에 포함된 question/annotation/image만 출력 가능
+- `validate_mscoco_vqattack_output.py`
+  - `--metadata-json` 추가
+  - full source 대신 subset metadata 기준 검증 가능
 
-## 서버 dataset 다운로드
+## 검증 결과
 
-가중치는 다운로드하지 않는다. 아래 명령은 MSCOCO image/question/annotation만 `/var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO`에 받는다.
+- Python 문법 검증 통과:
+  - `prepare_mscoco_vqattack_albef.py`
+  - `write_attacked_mscoco_original_format.py`
+  - `validate_mscoco_vqattack_output.py`
+- Bash 문법 검증 통과:
+  - `run_mscoco_vqattack_4gpu.sh`
+- Local prepare 테스트:
+  - `val=3` 결과: image 3장, question 10개
+  - `val=3166` 결과: image 3,166장, question 16,981개
+
+## 서버 적용 절차
+
+GitHub repo에 반영한 뒤 서버에서:
 
 ```bash
-cd /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO/code
+cd /var/tmp/jnuadmin_vlm/VLM/Attack/VQAttack-MSCOCO
+git pull
 
-bash download_mscoco_vqa_assets.sh \
-  --mscoco-root /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO
+cp -a /var/tmp/jnuadmin_vlm/VLM/Attack/VQAttack-MSCOCO/mscoco_tools/. \
+  /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO/code/
 ```
 
-## Smoke 실행
+MSCOCO validation image 3,166장 subset 공격:
 
 ```bash
 cd /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO/code
+conda activate vqattack-textvqa
 
 bash run_mscoco_vqattack_4gpu.sh \
   --mscoco-root /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO \
   --checkpoint-root /var/tmp/jnuadmin_vlm/VLM/Attack/VQAttack/checkpoints/albef \
-  --work-root /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_smoke \
+  --work-root /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_val3166_4gpu \
   --gpu-ids 4,5,6,7 \
-  --limit 2 \
-  --convert-images \
-  --log-interval 20
-```
-
-`--limit`이 0보다 크면 partial smoke 결과이므로 최종 original-format 변환은 자동으로 건너뛴다.
-
-## Full 실행
-
-```bash
-cd /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO/code
-
-bash run_mscoco_vqattack_4gpu.sh \
-  --mscoco-root /var/tmp/jnuadmin_vlm/VLM/dataset/MSCOCO \
-  --checkpoint-root /var/tmp/jnuadmin_vlm/VLM/Attack/VQAttack/checkpoints/albef \
-  --work-root /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_4gpu \
-  --gpu-ids 4,5,6,7 \
+  --splits val \
+  --max-images-per-split val=3166 \
   --convert-images \
   --log-interval 60
 ```
 
-## 예상 최종 출력
+## 남은 주의점
 
-```text
-/var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_4gpu/merged/original_format/
-  train2014/
-  val2014/
-  v2_OpenEnded_mscoco_train2014_questions.json
-  v2_OpenEnded_mscoco_val2014_questions.json
-  v2_mscoco_train2014_annotations.json
-  v2_mscoco_val2014_annotations.json
-  attack_original_format_manifest.json
-```
-
-## 진행 확인
-
-```bash
-nvidia-smi
-
-tail -n 80 /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_4gpu/shards/shard_00/run.log
-tail -n 80 /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_4gpu/shards/shard_01/run.log
-tail -n 80 /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_4gpu/shards/shard_02/run.log
-tail -n 80 /var/tmp/jnuadmin_vlm/VLM/outputs/mscoco_vqattack_4gpu/shards/shard_03/run.log
-```
-
-## 검증 상태
-
-- 실제 서버 다운로드와 GPU 공격 실행은 아직 하지 않았다.
-- 로컬 Anaconda Python `3.12.7`로 Python 파일 AST 문법 검사를 통과했다.
-- Git Bash로 `run_mscoco_vqattack_4gpu.sh`의 `bash -n` 검사를 통과했다.
-
-## 주의 사항
-
-- `sudo`를 사용하지 않는다.
-- `/home`에 큰 output을 쓰지 않는다.
-- checkpoint는 새로 받지 않는다.
-- large dataset/checkpoint/output은 GitHub에 올리지 않는다.
+- 현재 서버에서 full MSCOCO train attack이 돌고 있다면, validation subset run은 사용자가 직접 멈춘 뒤 실행해야 한다.
+- 기존 full train/val output과 섞이지 않도록 `--work-root`는 반드시 새 경로를 사용한다.
+- `--limit`은 question 기준 smoke용이다. 이번 validation 3,166장 subset에는 `--limit`을 쓰지 않는다.

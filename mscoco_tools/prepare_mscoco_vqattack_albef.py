@@ -28,7 +28,35 @@ def select_shard(records: list[dict], num_shards: int, shard_index: int) -> list
     return [record for index, record in enumerate(records) if index % num_shards == shard_index]
 
 
-def load_split_records(mscoco_root: Path, split: str, skip_missing_images: bool) -> list[dict]:
+def parse_max_images_per_split(raw_value: str) -> dict[str, int]:
+    limits: dict[str, int] = {}
+    raw_value = raw_value.strip()
+    if not raw_value:
+        return limits
+
+    for raw_item in raw_value.split(","):
+        item = raw_item.strip()
+        if not item:
+            continue
+        if "=" not in item:
+            raise ValueError(
+                "--max-images-per-split entries must look like split=count, for example val=3166"
+            )
+        raw_split, raw_count = item.split("=", 1)
+        split = normalize_splits(raw_split)[0]
+        count = int(raw_count)
+        if count < 1:
+            raise ValueError("--max-images-per-split counts must be positive")
+        limits[split] = count
+    return limits
+
+
+def load_split_records(
+    mscoco_root: Path,
+    split: str,
+    skip_missing_images: bool,
+    max_images: int = 0,
+) -> list[dict]:
     spec = SPLIT_SPECS[split]
     questions_payload = load_json(mscoco_root / spec.question_file)
     annotations_payload = load_json(mscoco_root / spec.annotation_file)
@@ -40,6 +68,7 @@ def load_split_records(mscoco_root: Path, split: str, skip_missing_images: bool)
     missing_annotations: list[int] = []
     missing_images: list[str] = []
     image_exists_cache: dict[str, bool] = {}
+    selected_images: set[str] = set()
 
     for item in questions_payload["questions"]:
         qid = int(item["question_id"])
@@ -61,6 +90,11 @@ def load_split_records(mscoco_root: Path, split: str, skip_missing_images: bool)
                 missing_images.append(image)
             if skip_missing_images:
                 continue
+
+        if max_images > 0 and image not in selected_images:
+            if len(selected_images) >= max_images:
+                continue
+            selected_images.add(image)
 
         records.append(
             {
@@ -126,13 +160,29 @@ def main() -> None:
     parser.add_argument("--limit", type=int, default=0, help="Per-shard record limit. 0 means full shard.")
     parser.add_argument("--num-shards", type=int, default=1)
     parser.add_argument("--shard-index", type=int, default=0)
+    parser.add_argument(
+        "--max-images-per-split",
+        default="",
+        help=(
+            "Optional comma-separated split image limits, for example val=3166. "
+            "The selected images keep all questions."
+        ),
+    )
     parser.add_argument("--skip-missing-images", action="store_true")
     args = parser.parse_args()
 
     splits = normalize_splits(args.splits)
+    max_images_per_split = parse_max_images_per_split(args.max_images_per_split)
     records: list[dict] = []
     for split in splits:
-        records.extend(load_split_records(args.mscoco_root, split, args.skip_missing_images))
+        records.extend(
+            load_split_records(
+                args.mscoco_root,
+                split,
+                args.skip_missing_images,
+                max_images=max_images_per_split.get(split, 0),
+            )
+        )
 
     records = select_shard(records, args.num_shards, args.shard_index)
     limit = None if args.limit <= 0 else args.limit
@@ -167,6 +217,7 @@ def main() -> None:
         "image_counts": dict(image_counts),
         "splits": splits,
         "limit": limit,
+        "max_images_per_split": max_images_per_split,
         "num_shards": args.num_shards,
         "shard_index": args.shard_index,
         "tag": tag,

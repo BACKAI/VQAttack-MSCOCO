@@ -81,6 +81,52 @@ def update_question_payload(payload: dict, adv_text: dict[str, str], split: str)
     return payload, missing
 
 
+def filter_payloads_to_metadata(
+    question_payload: dict,
+    annotation_payload: dict,
+    metadata: list[dict],
+    split: str,
+) -> tuple[dict, dict]:
+    metadata_qids = {
+        str(int(record["question_id"]))
+        for record in metadata
+        if record.get("source_split") == split
+    }
+    if not metadata_qids:
+        raise ValueError(f"No metadata records found for split: {split}")
+
+    filtered_questions = dict(question_payload)
+    filtered_questions["questions"] = [
+        item
+        for item in question_payload["questions"]
+        if str(int(item["question_id"])) in metadata_qids
+    ]
+
+    filtered_annotations = dict(annotation_payload)
+    filtered_annotations["annotations"] = [
+        item
+        for item in annotation_payload["annotations"]
+        if str(int(item["question_id"])) in metadata_qids
+    ]
+
+    question_qids = {str(int(item["question_id"])) for item in filtered_questions["questions"]}
+    annotation_qids = {str(int(item["question_id"])) for item in filtered_annotations["annotations"]}
+    if question_qids != metadata_qids:
+        missing = sorted(metadata_qids - question_qids, key=lambda value: int(value))
+        preview = ", ".join(missing[:10])
+        raise ValueError(
+            f"{split} question file is missing {len(missing)} metadata question_id(s): {preview}"
+        )
+    if annotation_qids != metadata_qids:
+        missing = sorted(metadata_qids - annotation_qids, key=lambda value: int(value))
+        preview = ", ".join(missing[:10])
+        raise ValueError(
+            f"{split} annotation file is missing {len(missing)} metadata question_id(s): {preview}"
+        )
+
+    return filtered_questions, filtered_annotations
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description=(
@@ -95,6 +141,11 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--splits", default="train,val")
     parser.add_argument("--image-selection", choices=["first", "last"], default="first")
+    parser.add_argument(
+        "--subset-to-metadata",
+        action="store_true",
+        help="Write only questions/annotations/images that are present in metadata-json.",
+    )
     parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
@@ -122,13 +173,24 @@ def main() -> None:
         source_questions = args.mscoco_root / spec.question_file
         source_annotations = args.mscoco_root / spec.annotation_file
         question_payload = load_json(source_questions)
+        annotation_payload = load_json(source_annotations)
+        if args.subset_to_metadata:
+            question_payload, annotation_payload = filter_payloads_to_metadata(
+                question_payload,
+                annotation_payload,
+                metadata,
+                split,
+            )
         question_payload, _ = update_question_payload(question_payload, adv_text, split)
 
         output_questions = args.output_dir / spec.question_file
         output_annotations = args.output_dir / spec.annotation_file
         write_json(output_questions, question_payload)
-        output_annotations.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(source_annotations, output_annotations)
+        if args.subset_to_metadata:
+            write_json(output_annotations, annotation_payload)
+        else:
+            output_annotations.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(source_annotations, output_annotations)
 
         image_paths = sorted(
             {

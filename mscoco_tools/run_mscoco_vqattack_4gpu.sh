@@ -15,6 +15,7 @@ GPU_IDS="4,5,6,7"
 NUM_SHARDS=4
 LIMIT=0
 SPLITS="train,val"
+MAX_IMAGES_PER_SPLIT=""
 CONVERT_IMAGES=0
 SKIP_PREPARE=0
 USE_SIMILARITY=0
@@ -34,6 +35,7 @@ while [[ $# -gt 0 ]]; do
     --gpu-ids) GPU_IDS="$2"; shift 2 ;;
     --num-shards) NUM_SHARDS="$2"; shift 2 ;;
     --splits) SPLITS="$2"; shift 2 ;;
+    --max-images-per-split) MAX_IMAGES_PER_SPLIT="$2"; shift 2 ;;
     --limit) LIMIT="$2"; shift 2 ;;
     --convert-images) CONVERT_IMAGES=1; shift ;;
     --skip-prepare) SKIP_PREPARE=1; shift ;;
@@ -67,6 +69,7 @@ echo "ALBEF VQAttack repo root: ${REPO_ROOT}"
 echo "Checkpoint root: ${CHECKPOINT_ROOT}"
 echo "Work root: ${WORK_ROOT}"
 echo "Splits: ${SPLITS}"
+echo "Max images per split: ${MAX_IMAGES_PER_SPLIT:-none}"
 echo "GPUs: ${GPU_IDS}"
 echo "Limit per shard: ${LIMIT}"
 
@@ -99,6 +102,7 @@ for shard_index in $(seq 0 $((NUM_SHARDS - 1))); do
       --mscoco-root "$MSCOCO_ROOT" \
       --output-dir "$shard_dir" \
       --splits "$SPLITS" \
+      --max-images-per-split "$MAX_IMAGES_PER_SPLIT" \
       --tag "$shard_tag" \
       --limit "$LIMIT" \
       --num-shards "$NUM_SHARDS" \
@@ -223,12 +227,14 @@ if [[ "$CONVERT_IMAGES" -eq 1 ]]; then
       --output-dir "$FINAL_ORIGINAL_FORMAT_DIR" \
       --splits "$SPLITS" \
       --image-selection "first" \
+      --subset-to-metadata \
       --overwrite
 
     if [[ "$VALIDATE_FINAL" -eq 1 ]]; then
       "$PYTHON_BIN" "${SCRIPT_DIR}/validate_mscoco_vqattack_output.py" \
         --mscoco-root "$MSCOCO_ROOT" \
         --output-dir "$FINAL_ORIGINAL_FORMAT_DIR" \
+        --metadata-json "${OUTPUT_ROOT}/data/mscoco_train_val_full.json" \
         --splits "$SPLITS"
     fi
   fi

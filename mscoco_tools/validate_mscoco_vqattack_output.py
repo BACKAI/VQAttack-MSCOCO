@@ -19,22 +19,46 @@ def count_jpgs(path: Path) -> int:
     return sum(1 for _ in path.glob("*.jpg"))
 
 
-def validate_split(mscoco_root: Path, output_dir: Path, split: str) -> dict:
+def validate_split(
+    mscoco_root: Path,
+    output_dir: Path,
+    split: str,
+    metadata: list[dict] | None = None,
+) -> dict:
     spec = SPLIT_SPECS[split]
     source_questions = load_json(mscoco_root / spec.question_file)
     output_questions = load_json(output_dir / spec.question_file)
-    source_annotations = load_json(mscoco_root / spec.annotation_file)
     output_annotations = load_json(output_dir / spec.annotation_file)
 
-    source_question_count = len(source_questions["questions"])
-    output_question_count = len(output_questions["questions"])
-    source_annotation_count = len(source_annotations["annotations"])
-    output_annotation_count = len(output_annotations["annotations"])
+    if metadata is None:
+        expected_qids = {str(int(item["question_id"])) for item in source_questions["questions"]}
+        expected_images = {
+            image_relative_path(spec, int(item["image_id"]))
+            for item in source_questions["questions"]
+        }
+    else:
+        expected_qids = {
+            str(int(record["question_id"]))
+            for record in metadata
+            if record.get("source_split") == split
+        }
+        expected_images = {
+            record["image"]
+            for record in metadata
+            if record.get("source_split") == split
+        }
+        if not expected_qids:
+            raise ValueError(f"No metadata records found for split: {split}")
 
-    expected_images = {
-        image_relative_path(spec, int(item["image_id"]))
-        for item in source_questions["questions"]
+    source_question_count = len(expected_qids)
+    output_question_count = len(output_questions["questions"])
+    source_annotation_count = len(expected_qids)
+    output_annotation_count = len(output_annotations["annotations"])
+    output_question_qids = {str(int(item["question_id"])) for item in output_questions["questions"]}
+    output_annotation_qids = {
+        str(int(item["question_id"])) for item in output_annotations["annotations"]
     }
+
     missing_original_question = sum(
         1 for item in output_questions["questions"] if "original_question" not in item
     )
@@ -49,10 +73,15 @@ def validate_split(mscoco_root: Path, output_dir: Path, split: str) -> dict:
 
     return {
         "split": split,
+        "validation_basis": "metadata" if metadata is not None else "source",
         "source_question_count": source_question_count,
         "output_question_count": output_question_count,
         "source_annotation_count": source_annotation_count,
         "output_annotation_count": output_annotation_count,
+        "missing_output_question_ids": len(expected_qids - output_question_qids),
+        "extra_output_question_ids": len(output_question_qids - expected_qids),
+        "missing_output_annotation_ids": len(expected_qids - output_annotation_qids),
+        "extra_output_annotation_ids": len(output_annotation_qids - expected_qids),
         "expected_unique_images": len(expected_images),
         "output_image_files": count_jpgs(output_dir / spec.image_dir),
         "missing_original_question": missing_original_question,
@@ -62,6 +91,8 @@ def validate_split(mscoco_root: Path, output_dir: Path, split: str) -> dict:
         "ok": (
             source_question_count == output_question_count
             and source_annotation_count == output_annotation_count
+            and output_question_qids == expected_qids
+            and output_annotation_qids == expected_qids
             and len(missing_images) == 0
             and missing_original_question == 0
         ),
@@ -72,12 +103,19 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Validate final attacked MSCOCO VQA output.")
     parser.add_argument("--mscoco-root", type=Path, default=default_mscoco_root())
     parser.add_argument("--output-dir", type=Path, required=True)
+    parser.add_argument(
+        "--metadata-json",
+        type=Path,
+        default=None,
+        help="Optional metadata JSON to validate a subset output instead of the full source split.",
+    )
     parser.add_argument("--splits", default="train,val")
     parser.add_argument("--fail-on-unchanged", action="store_true")
     args = parser.parse_args()
 
+    metadata = load_json(args.metadata_json) if args.metadata_json else None
     results = [
-        validate_split(args.mscoco_root, args.output_dir, split)
+        validate_split(args.mscoco_root, args.output_dir, split, metadata)
         for split in normalize_splits(args.splits)
     ]
     ok = all(item["ok"] for item in results)
