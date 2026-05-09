@@ -168,6 +168,10 @@ class Adv_attack:
         self.acc_list=[]
 
         self.mlm_model = BertForMaskedLM.from_pretrained('bert-base-uncased', config=config_atk).to(self.device)
+        self.pgd_eps = float(os.environ.get("VQATTACK_PGD_EPS", "0.125"))
+        self.pgd_eps_iter = float(os.environ.get("VQATTACK_PGD_EPS_ITER", "0.01"))
+        self.print_freq = max(1, int(os.environ.get("VQATTACK_PRINT_FREQ", "50")))
+        print(f"VQAttack PGD eps={self.pgd_eps} eps_iter={self.pgd_eps_iter}")
     def Gen_ori_feats(self, batch):
         image=batch['image'].to(self.device, non_blocking=True)
         question_input = self.tokenizer(batch['question'], padding='longest', truncation = True,max_length = 25,return_tensors="pt",).to(self.device)
@@ -695,7 +699,7 @@ class Adv_attack:
             if len(iter_list) == 0:
                 if old_alg == 1:
                     torch.set_grad_enabled(True)
-                    adv_x, loss = pgd.projected_gradient_descent(self.pgd_attack, adv_img, 0.125, 0.01, 40,
+                    adv_x, loss = pgd.projected_gradient_descent(self.pgd_attack, adv_img, self.pgd_eps, self.pgd_eps_iter, 40,
                                                                  np.inf, clip_min=-1, clip_max=1,
                                                                  y=[ori_txt_feats, ori_img_feats, None, None, None],
                                                                  time=ii, ori_x=batch['image'].cuda(), ls=old_alg)
@@ -703,7 +707,7 @@ class Adv_attack:
                 if old_alg == 0:
                     torch.set_grad_enabled(True)
                     adv_x, loss = pgd.projected_gradient_descent([self.pgd_attack, self.pgd_mlm_attack], adv_img,
-                                                                 0.125, 0.01, 20,
+                                                                 self.pgd_eps, self.pgd_eps_iter, 20,
                                                                  np.inf, clip_min=-1, clip_max=1,
                                                                  y=[mlm_labels,ori_txt_feats,ori_img_feats],
                                                                  time=ii, ori_x=batch['image'].cuda(), ls=old_alg)
@@ -721,7 +725,7 @@ class Adv_attack:
                         )
                         self.batch[f"text_ids"] = adv_encoding["input_ids"].cuda()
                         self.batch[f"text_masks"] = adv_encoding["attention_mask"].cuda()
-                        adv_x, loss = pgd.projected_gradient_descent(self.pgd_attack, adv_img, 0.125, 0.01, iter,
+                        adv_x, loss = pgd.projected_gradient_descent(self.pgd_attack, adv_img, self.pgd_eps, self.pgd_eps_iter, iter,
                                                                      np.inf, clip_min=-1, clip_max=1,
                                                                      y=[ori_txt_feats, ori_img_feats, None, None, None],
                                                                      time=ii, ori_x=batch['image'].cuda(), ls=old_alg)
@@ -737,7 +741,7 @@ class Adv_attack:
 
                             adv_x, text_embed_gradient = pgd_vl.projected_gradient_descent(self.pgd_attack_vl,
                                                                                            [adv_x, adv_text_embeds],
-                                                                                           0.125, 0.01, 1,
+                                                                                           self.pgd_eps, self.pgd_eps_iter, 1,
                                                                                            np.inf, clip_min=-1,
                                                                                            clip_max=1,
                                                                                            y=[ori_txt_feats, ori_img_feats,
@@ -759,7 +763,7 @@ class Adv_attack:
                         self.batch[f"text_ids"] = adv_encoding["input_ids"].cuda()
                         self.batch[f"text_masks"] = adv_encoding["attention_mask"].cuda()
                         adv_x, loss = pgd.projected_gradient_descent([self.pgd_attack, self.pgd_mlm_attack], adv_img,
-                                                                     0.125, 0.01, int(iter / 2),
+                                                                     self.pgd_eps, self.pgd_eps_iter, int(iter / 2),
                                                                      np.inf, clip_min=-1, clip_max=1,
                                                                      y=[mlm_labels,ori_txt_feats,ori_img_feats],
                                                                      time=ii, ori_x=batch['image'].cuda(), ls=old_alg)
@@ -773,7 +777,7 @@ class Adv_attack:
                             adv_text_embeds = self.text_embeddings(adv_text_ids)
                             adv_x, text_embed_gradient = pgd_vl.projected_gradient_descent(self.pgd_attack_vl,
                                                                                            [adv_x, adv_text_embeds],
-                                                                                           0.125, 0.01, 1,
+                                                                                           self.pgd_eps, self.pgd_eps_iter, 1,
                                                                                            np.inf, clip_min=-1,
                                                                                            clip_max=1,
                                                                                            y=[ori_txt_feats, ori_img_feats,
@@ -823,7 +827,7 @@ class Adv_attack:
                     else:
                         self.acc_list.append(0)
                 self.attack_dict = {}
-                if len(self.acc_list) % 50 == 0 and len(self.acc_list) != 0:
+                if len(self.acc_list) % self.print_freq == 0 and len(self.acc_list) != 0:
                     print('attack_accuracy', sum(self.acc_list) / len(self.acc_list))
         with open(self.adv_store_txt_source, 'w', encoding='utf-8') as file:
             file.write(json.dumps(self.adv_txt_dict, ensure_ascii=False))
